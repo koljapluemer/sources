@@ -128,11 +128,13 @@ const SourceForm = {
     editKey: { type: String, default: null },
     sources: { type: Array, required: true },
   },
-  emits: ['error', 'saved'],
+  emits: ['error', 'saved', 'deleted'],
   setup(/** @type {any} */ props, /** @type {any} */ { emit }) {
     const /** @type {Schema} */ schema = props.schema;
     const form = ref(/** @type {Source} */ ({ key: '', entrytype: 'misc', aliases: [''], extra: {} }));
     const shown = ref(/** @type {string[]} */ ([]));
+    let currentKey = props.editKey;
+    let pendingSave = Promise.resolve();
 
     watch(() => props.editKey, () => {
       const existing = props.editKey && props.sources.find((/** @type {Source} */ s) => s.key === props.editKey);
@@ -141,13 +143,6 @@ const SourceForm = {
         : { key: '', entrytype: 'misc', aliases: [''], extra: {} };
       shown.value = Object.keys(schema.fields).filter((f) => hasValue(form.value[f]));
     }, { immediate: true });
-
-    function ensureDefaults() {
-      for (const f of schema.entryTypes[form.value.entrytype] || []) {
-        if (form.value[f] === undefined) form.value[f] = blankValue(schema.fields[f], schema.nameParts);
-      }
-    }
-    watch(() => form.value.entrytype, ensureDefaults, { immediate: true });
 
     function ensureDefaults() {
       for (const f of schema.entryTypes[form.value.entrytype] || []) {
@@ -175,29 +170,36 @@ const SourceForm = {
     }
 
     async function save() {
+      if (!form.value.key.trim()) return;
       try {
-        const saved = props.editKey
-          ? await api('PUT', `/api/sources/${encodeURIComponent(props.editKey)}`, form.value)
+        const saved = currentKey
+          ? await api('PUT', `/api/sources/${encodeURIComponent(currentKey)}`, form.value)
           : await api('POST', '/api/sources', form.value);
+        currentKey = saved.key;
         emit('saved', saved.key);
       } catch (e) { emit('error', e); }
     }
 
+    function autosave() {
+      pendingSave = pendingSave.then(save);
+    }
+
     async function remove() {
-      if (!confirm(`Delete ${props.editKey}?`)) return;
+      await pendingSave;
+      if (!currentKey) return;
       try {
-        await api('DELETE', `/api/sources/${encodeURIComponent(props.editKey)}`);
-        emit('saved', null);
+        const deleted = JSON.parse(JSON.stringify(form.value));
+        await api('DELETE', `/api/sources/${encodeURIComponent(currentKey)}`);
+        emit('deleted', deleted);
       } catch (e) { emit('error', e); }
     }
 
-    return { form, visible, hidden, addField, inputType, save, remove, types: Object.keys(schema.entryTypes) };
+    return { form, visible, hidden, addField, inputType, autosave, remove, types: Object.keys(schema.entryTypes) };
   },
   template: `
-    <div>
+    <div @focusout="autosave">
       <div class="flex gap-1 mb-4">
         <a href="#/" class="btn btn-square" title="back"><icon name="arrow-left"></icon></a>
-        <button class="btn btn-square btn-primary" title="save" @click="save"><icon name="save"></icon></button>
         <button v-if="editKey" class="btn btn-square btn-error btn-outline" title="delete" @click="remove"><icon name="trash-2"></icon></button>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
@@ -271,11 +273,13 @@ const SourceList = {
   },
   template: `
     <div>
-      <div class="flex gap-1 mb-4">
-        <a href="#/new" class="btn btn-square" title="new source"><icon name="plus"></icon></a>
-        <button class="btn btn-square" title="add from bibtex (clipboard)" @click="fromClipboard"><icon name="clipboard-paste"></icon></button>
-        <a href="#/settings" class="btn btn-square" title="settings"><icon name="settings"></icon></a>
-        <input class="input ml-auto" type="search" v-model="query" autofocus>
+      <div class="flex gap-1 mb-2">
+        <a href="#/new" class="btn" title="new source"><icon name="plus"></icon>New</a>
+        <button class="btn" title="add from bibtex (clipboard)" @click="fromClipboard"><icon name="clipboard-paste"></icon>Import BibTeX</button>
+        <a href="#/settings" class="btn" title="settings"><icon name="settings"></icon>Settings</a>
+      </div>
+      <div class="mb-4">
+        <input class="input w-full" type="search" v-model="query" placeholder="Filter" autofocus>
       </div>
       <table class="table table-xs table-zebra">
         <thead><tr><th>key</th><th>title</th><th>author</th><th>year</th><th>type</th></tr></thead>
@@ -306,8 +310,7 @@ const Settings = {
   template: `
     <div class="flex gap-1">
       <a v-if="path" href="#/" class="btn btn-square" title="back"><icon name="arrow-left"></icon></a>
-      <input class="input flex-1" v-model="value" @keyup.enter="save" autofocus>
-      <button class="btn btn-square btn-primary" title="save" @click="save"><icon name="save"></icon></button>
+      <input class="input flex-1" v-model="value" @blur="save" autofocus>
     </div>`,
 };
 
@@ -320,6 +323,8 @@ createApp({
     const schema = ref(/** @type {Schema | null} */ (null));
     const sources = ref(/** @type {Source[]} */ ([]));
     const ready = ref(false);
+    const deleted = ref(/** @type {Source | null} */ (null));
+    let undoTimer = 0;
 
     /** @param {any} e */
     const fail = (e) => { error.value = e.message || String(e); };
@@ -359,7 +364,29 @@ createApp({
     /** @param {string | null} key */
     async function formSaved(key) {
       await loadSources();
-      go(key ? `#/edit/${encodeURIComponent(key)}` : '#/');
+      if (key && page.value === 'edit' && editKey.value !== key) {
+        go(`#/edit/${encodeURIComponent(key)}`);
+      }
+    }
+
+    /** @param {Source} source */
+    async function formDeleted(source) {
+      await loadSources();
+      go('#/');
+      deleted.value = source;
+      clearTimeout(undoTimer);
+      undoTimer = setTimeout(() => { deleted.value = null; }, 20000);
+    }
+
+    async function undoDelete() {
+      if (!deleted.value) return;
+      const source = deleted.value;
+      try {
+        await api('POST', '/api/sources', source);
+        deleted.value = null;
+        clearTimeout(undoTimer);
+        await loadSources();
+      } catch (e) { fail(e); }
     }
 
     /** @param {string[]} keys */
@@ -370,14 +397,20 @@ createApp({
 
     onMounted(() => init().catch(fail));
 
-    return { ready, error, path, schema, sources, page, editKey, fail, settingsSaved, formSaved, imported };
+    return { ready, error, path, schema, sources, page, editKey, deleted, fail, settingsSaved, formSaved, formDeleted, undoDelete, imported };
   },
   template: `
+    <div v-if="deleted" class="toast toast-top toast-end z-50">
+      <div class="alert shadow-lg">
+        <span>{{ deleted.key }} deleted</span>
+        <button class="btn btn-sm" @click="undoDelete">Undo</button>
+      </div>
+    </div>
     <div v-if="error" role="alert" class="alert alert-error mb-4"><span>{{ error }}</span></div>
     <template v-if="ready">
       <settings v-if="page === 'settings'" :path="path || ''" @saved="settingsSaved" @error="fail"></settings>
       <source-form v-else-if="page === 'new' || page === 'edit'" :key="page + editKey" :schema="schema"
-                   :sources="sources" :edit-key="page === 'edit' ? editKey : null" @saved="formSaved" @error="fail"></source-form>
+                   :sources="sources" :edit-key="page === 'edit' ? editKey : null" @saved="formSaved" @deleted="formDeleted" @error="fail"></source-form>
       <source-list v-else :sources="sources" @imported="imported" @error="fail"></source-list>
     </template>`,
 }).mount('#app');
