@@ -31,14 +31,14 @@ async function api(method, url, body) {
 const go = (/** @type {string} */ hash) => { location.hash = hash; };
 
 const Icon = {
-  props: { name: { type: String, required: true } },
-  setup(/** @type {{name: string}} */ props) {
+  props: { name: { type: String, required: true }, size: { type: Number, default: 20 } },
+  setup(/** @type {{name: string, size: number}} */ props) {
     return () => {
       const pascal = props.name.replace(/(^|-)(\w)/g, (_m, _s, c) => c.toUpperCase());
       /** @type {[string, Record<string, string>][]} */
       const nodes = lucide_.icons[pascal] || [];
       return h('svg', {
-        xmlns: 'http://www.w3.org/2000/svg', width: 20, height: 20, viewBox: '0 0 24 24',
+        xmlns: 'http://www.w3.org/2000/svg', width: props.size, height: props.size, viewBox: '0 0 24 24',
         fill: 'none', stroke: 'currentColor', 'stroke-width': 2,
         'stroke-linecap': 'round', 'stroke-linejoin': 'round',
       }, nodes.map(([tag, attrs]) => h(tag, attrs)));
@@ -249,7 +249,7 @@ const authors = (s) => {
 const SourceList = {
   components: { Icon },
   props: { sources: { type: Array, required: true } },
-  emits: ['error', 'imported'],
+  emits: ['error', 'imported', 'deleted', 'warn'],
   setup(/** @type {any} */ props, /** @type {any} */ { emit }) {
     const query = ref('');
     const rows = computed(() => {
@@ -269,7 +269,27 @@ const SourceList = {
       } catch (e) { emit('error', e); }
     }
 
-    return { query, rows, fromClipboard, authors, open: (/** @type {string} */ key) => go('#/edit/' + encodeURIComponent(key)), year: (/** @type {Source} */ s) => (s.date || '').slice(0, 4) };
+    /** @param {string} text */
+    async function copy(text) {
+      try { await navigator.clipboard.writeText(text); } catch { emit('warn', 'Could not copy to clipboard'); }
+    }
+
+    /** @param {string} v */
+    const escHtml = (v) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    /** @param {Source} s */
+    const copyMarkdown = (s) => copy(`[${(s.title || s.key).replace(/[[\]]/g, '\\$&')}](${s.url || ''})`);
+    /** @param {Source} s */
+    const copyHtml = (s) => copy(`<a href="${escHtml(s.url || '')}" target="_blank">${escHtml(s.title || s.key)}</a>`);
+
+    /** @param {Source} s */
+    async function remove(s) {
+      try {
+        await api('DELETE', `/api/sources/${encodeURIComponent(s.key)}`);
+        emit('deleted', s);
+      } catch (e) { emit('error', e); }
+    }
+
+    return { query, rows, fromClipboard, authors, copy, copyMarkdown, copyHtml, remove, edit: (/** @type {string} */ key) => go('#/edit/' + encodeURIComponent(key)), year: (/** @type {Source} */ s) => (s.date || '').slice(0, 4) };
   },
   template: `
     <div>
@@ -282,11 +302,25 @@ const SourceList = {
         <input class="input w-full" type="search" v-model="query" placeholder="Filter" autofocus>
       </div>
       <table class="table table-xs table-zebra">
-        <thead><tr><th>key</th><th>title</th><th>author</th><th>year</th><th>type</th></tr></thead>
+        <thead><tr><th></th><th>key</th><th>title</th><th>author</th><th>year</th><th>type</th><th></th></tr></thead>
         <tbody>
-          <tr v-for="s in rows" :key="s.key" class="hover:bg-base-200 cursor-pointer" @click="open(s.key)">
-            <td class="font-mono">{{ s.key }}</td><td>{{ s.title }}</td><td>{{ authors(s) }}</td>
-            <td>{{ year(s) }}</td><td>{{ s.entrytype }}</td>
+          <tr v-for="s in rows" :key="s.key" class="hover:bg-base-200">
+            <td><button class="btn btn-ghost btn-xs btn-square" title="copy key" @click="copy(s.key)"><icon name="copy" :size="14"></icon></button></td>
+            <td class="font-mono">{{ s.key }}</td>
+            <td>
+              <div class="flex items-center justify-between gap-2">
+                <span>{{ s.title }}</span>
+                <span class="flex shrink-0">
+                  <button class="btn btn-ghost btn-xs btn-square" title="copy as markdown link" @click="copyMarkdown(s)"><icon name="link" :size="14"></icon></button>
+                  <button class="btn btn-ghost btn-xs btn-square" title="copy as html link" @click="copyHtml(s)"><icon name="code-xml" :size="14"></icon></button>
+                </span>
+              </div>
+            </td>
+            <td>{{ authors(s) }}</td><td>{{ year(s) }}</td><td>{{ s.entrytype }}</td>
+            <td class="whitespace-nowrap text-right">
+              <button class="btn btn-ghost btn-xs btn-square" title="edit" @click="edit(s.key)"><icon name="pencil" :size="14"></icon></button>
+              <button class="btn btn-ghost btn-xs btn-square text-error" title="delete" @click="remove(s)"><icon name="trash-2" :size="14"></icon></button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -324,7 +358,16 @@ createApp({
     const sources = ref(/** @type {Source[]} */ ([]));
     const ready = ref(false);
     const deleted = ref(/** @type {Source | null} */ (null));
+    const warning = ref('');
     let undoTimer = 0;
+    let warnTimer = 0;
+
+    /** @param {string} msg */
+    function warn(msg) {
+      warning.value = msg;
+      clearTimeout(warnTimer);
+      warnTimer = setTimeout(() => { warning.value = ''; }, 5000);
+    }
 
     /** @param {any} e */
     const fail = (e) => { error.value = e.message || String(e); };
@@ -397,11 +440,12 @@ createApp({
 
     onMounted(() => init().catch(fail));
 
-    return { ready, error, path, schema, sources, page, editKey, deleted, fail, settingsSaved, formSaved, formDeleted, undoDelete, imported };
+    return { ready, error, path, schema, sources, page, editKey, deleted, warning, warn, fail, settingsSaved, formSaved, formDeleted, undoDelete, imported };
   },
   template: `
-    <div v-if="deleted" class="toast toast-top toast-end z-50">
-      <div class="alert shadow-lg">
+    <div v-if="deleted || warning" class="toast toast-top toast-end z-50">
+      <div v-if="warning" class="alert alert-warning shadow-lg"><span>{{ warning }}</span></div>
+      <div v-if="deleted" class="alert shadow-lg">
         <span>{{ deleted.key }} deleted</span>
         <button class="btn btn-sm" @click="undoDelete">Undo</button>
       </div>
@@ -411,6 +455,6 @@ createApp({
       <settings v-if="page === 'settings'" :path="path || ''" @saved="settingsSaved" @error="fail"></settings>
       <source-form v-else-if="page === 'new' || page === 'edit'" :key="page + editKey" :schema="schema"
                    :sources="sources" :edit-key="page === 'edit' ? editKey : null" @saved="formSaved" @deleted="formDeleted" @error="fail"></source-form>
-      <source-list v-else :sources="sources" @imported="imported" @error="fail"></source-list>
+      <source-list v-else :sources="sources" @imported="imported" @deleted="formDeleted" @warn="warn" @error="fail"></source-list>
     </template>`,
 }).mount('#app');
