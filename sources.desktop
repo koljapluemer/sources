@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Sources
+Exec=uv run --project /ABS/PATH/TO/sources /ABS/PATH/TO/sources/app.py
+Icon=sources
+Terminal=false
+Categories=Office;

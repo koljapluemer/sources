@@ -1,0 +1,4 @@
+- you do not have git write access
+- do not access folders outside this repo unless explicitly instructed
+- keep it simple, this is a personal app. Do not add explanatory microcopy, marketing waffle or hallucinated cutesy features.
+- do not run visual checks

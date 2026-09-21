@@ -1,0 +1,383 @@
+// @ts-check
+/**
+ * @typedef {{family?: string, given?: string, prefix?: string, suffix?: string}} Name
+ * @typedef {{type: 'literal'|'text'|'integer'|'range'|'name'|'list'|'date'|'uri'|'verbatim'|'key', choices?: string[]}} FieldDef
+ * @typedef {{fields: Record<string, FieldDef>, entryTypes: Record<string, string[]>, nameParts: string[]}} Schema
+ * @typedef {{key: string, entrytype: string, title?: string, aliases?: string[], extra?: Record<string, string>, [field: string]: any}} Source
+ */
+
+// @ts-ignore globals from CDN
+const { createApp, ref, computed, onMounted, watch, h } = Vue;
+// @ts-ignore
+const lucide_ = lucide;
+
+/**
+ * @param {string} method
+ * @param {string} url
+ * @param {any} [body]
+ */
+async function api(method, url, body) {
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (res.status === 204) return null;
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+const go = (/** @type {string} */ hash) => { location.hash = hash; };
+
+const Icon = {
+  props: { name: { type: String, required: true } },
+  setup(/** @type {{name: string}} */ props) {
+    return () => {
+      const pascal = props.name.replace(/(^|-)(\w)/g, (_m, _s, c) => c.toUpperCase());
+      /** @type {[string, Record<string, string>][]} */
+      const nodes = lucide_.icons[pascal] || [];
+      return h('svg', {
+        xmlns: 'http://www.w3.org/2000/svg', width: 20, height: 20, viewBox: '0 0 24 24',
+        fill: 'none', stroke: 'currentColor', 'stroke-width': 2,
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+      }, nodes.map(([tag, attrs]) => h(tag, attrs)));
+    };
+  },
+};
+
+/** list of strings; keeps one trailing blank row */
+const StrList = {
+  props: { modelValue: { type: Array, required: true } },
+  methods: {
+    /** @param {number} i @param {string} v */
+    set(i, v) {
+      const list = /** @type {string[]} */ (this.modelValue);
+      list[i] = v;
+      if (list[list.length - 1] !== '') list.push('');
+    },
+  },
+  template: `
+    <div class="flex flex-col gap-1">
+      <input v-for="(v, i) in modelValue" :key="i" class="input input-sm w-full"
+             :value="v" @input="set(i, $event.target.value)">
+    </div>`,
+};
+
+/** list of names; keeps one trailing blank row */
+const NameList = {
+  props: {
+    modelValue: { type: Array, required: true },
+    parts: { type: Array, required: true },
+  },
+  methods: {
+    grow() {
+      const list = /** @type {Name[]} */ (this.modelValue);
+      const last = list[list.length - 1];
+      if (last && (last.family || last.given)) list.push(blankName(/** @type {string[]} */ (this.parts)));
+    },
+  },
+  template: `
+    <div class="flex flex-col gap-1">
+      <div v-for="(n, i) in modelValue" :key="i" class="grid grid-cols-4 gap-1">
+        <input v-for="p in parts" :key="p" class="input input-sm w-full" :placeholder="p"
+               v-model="n[p]" @input="grow">
+      </div>
+    </div>`,
+};
+
+/** @param {string[]} parts */
+const blankName = (parts) => Object.fromEntries(parts.map((p) => [p, '']));
+
+/**
+ * @param {FieldDef} def
+ * @param {string[]} parts
+ */
+function blankValue(def, parts) {
+  if (def.type === 'name') return [blankName(parts)];
+  if (def.type === 'list') return [''];
+  return '';
+}
+
+/**
+ * @param {Source} source
+ * @param {Schema} schema
+ * @returns {Source}
+ */
+function toForm(source, schema) {
+  const form = structuredClone(source);
+  form.aliases = [...(form.aliases || []), ''];
+  form.extra = form.extra || {};
+  for (const [name, def] of Object.entries(schema.fields)) {
+    if (form[name] === undefined) continue;
+    if (def.type === 'name') form[name] = [...form[name].map((/** @type {Name} */ n) => ({ ...blankName(schema.nameParts), ...n })), blankName(schema.nameParts)];
+    else if (def.type === 'list') form[name] = [...form[name], ''];
+  }
+  return form;
+}
+
+/** @param {any} v */
+const hasValue = (v) =>
+  Array.isArray(v) ? v.some((x) => (typeof x === 'string' ? x : x.family || x.given)) : v !== undefined && v !== '';
+
+const SourceForm = {
+  components: { StrList, NameList, Icon },
+  props: {
+    schema: { type: Object, required: true },
+    /** existing key, or null when new */
+    editKey: { type: String, default: null },
+    sources: { type: Array, required: true },
+  },
+  emits: ['error', 'saved'],
+  setup(/** @type {any} */ props, /** @type {any} */ { emit }) {
+    const /** @type {Schema} */ schema = props.schema;
+    const form = ref(/** @type {Source} */ ({ key: '', entrytype: 'misc', aliases: [''], extra: {} }));
+    const shown = ref(/** @type {string[]} */ ([]));
+
+    watch(() => props.editKey, () => {
+      const existing = props.editKey && props.sources.find((/** @type {Source} */ s) => s.key === props.editKey);
+      form.value = existing
+        ? toForm(existing, schema)
+        : { key: '', entrytype: 'misc', aliases: [''], extra: {} };
+      shown.value = Object.keys(schema.fields).filter((f) => hasValue(form.value[f]));
+    }, { immediate: true });
+
+    function ensureDefaults() {
+      for (const f of schema.entryTypes[form.value.entrytype] || []) {
+        if (form.value[f] === undefined) form.value[f] = blankValue(schema.fields[f], schema.nameParts);
+      }
+    }
+    watch(() => form.value.entrytype, ensureDefaults, { immediate: true });
+
+    function ensureDefaults() {
+      for (const f of schema.entryTypes[form.value.entrytype] || []) {
+        if (form.value[f] === undefined) form.value[f] = blankValue(schema.fields[f], schema.nameParts);
+      }
+    }
+    watch(() => form.value.entrytype, ensureDefaults, { immediate: true });
+
+    const visible = computed(() =>
+      Object.keys(schema.fields).filter((f) =>
+        (schema.entryTypes[form.value.entrytype] || []).includes(f) || shown.value.includes(f) || hasValue(form.value[f])));
+    const hidden = computed(() => Object.keys(schema.fields).filter((f) => !visible.value.includes(f)));
+
+    /** @param {string} f */
+    function addField(f) {
+      if (!f) return;
+      if (form.value[f] === undefined) form.value[f] = blankValue(schema.fields[f], schema.nameParts);
+      shown.value.push(f);
+    }
+
+    /** @param {string} f */
+    function inputType(f) {
+      const t = schema.fields[f].type;
+      return t === 'integer' ? 'number' : t === 'uri' ? 'url' : 'text';
+    }
+
+    async function save() {
+      try {
+        const saved = props.editKey
+          ? await api('PUT', `/api/sources/${encodeURIComponent(props.editKey)}`, form.value)
+          : await api('POST', '/api/sources', form.value);
+        emit('saved', saved.key);
+      } catch (e) { emit('error', e); }
+    }
+
+    async function remove() {
+      if (!confirm(`Delete ${props.editKey}?`)) return;
+      try {
+        await api('DELETE', `/api/sources/${encodeURIComponent(props.editKey)}`);
+        emit('saved', null);
+      } catch (e) { emit('error', e); }
+    }
+
+    return { form, visible, hidden, addField, inputType, save, remove, types: Object.keys(schema.entryTypes) };
+  },
+  template: `
+    <div>
+      <div class="flex gap-1 mb-4">
+        <a href="#/" class="btn btn-square" title="back"><icon name="arrow-left"></icon></a>
+        <button class="btn btn-square btn-primary" title="save" @click="save"><icon name="save"></icon></button>
+        <button v-if="editKey" class="btn btn-square btn-error btn-outline" title="delete" @click="remove"><icon name="trash-2"></icon></button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
+        <fieldset class="fieldset"><legend class="fieldset-legend">key</legend>
+          <input class="input w-full" v-model="form.key" required></fieldset>
+        <fieldset class="fieldset"><legend class="fieldset-legend">entrytype</legend>
+          <select class="select w-full" v-model="form.entrytype"><option v-for="t in types" :key="t">{{ t }}</option></select></fieldset>
+        <fieldset class="fieldset md:col-span-2"><legend class="fieldset-legend">title</legend>
+          <input class="input w-full" v-model="form.title"></fieldset>
+        <fieldset class="fieldset md:col-span-2"><legend class="fieldset-legend">aliases</legend>
+          <str-list v-model="form.aliases"></str-list></fieldset>
+
+        <fieldset v-for="f in visible" :key="f" class="fieldset"
+                  :class="{'md:col-span-2': ['name', 'list', 'text'].includes(schema.fields[f].type)}">
+          <legend class="fieldset-legend">{{ f }}</legend>
+          <name-list v-if="schema.fields[f].type === 'name'" v-model="form[f]" :parts="schema.nameParts"></name-list>
+          <str-list v-else-if="schema.fields[f].type === 'list'" v-model="form[f]"></str-list>
+          <textarea v-else-if="schema.fields[f].type === 'text'" class="textarea w-full" v-model="form[f]"></textarea>
+          <select v-else-if="schema.fields[f].choices" class="select w-full" v-model="form[f]">
+            <option value=""></option><option v-for="c in schema.fields[f].choices" :key="c">{{ c }}</option>
+          </select>
+          <input v-else-if="schema.fields[f].type === 'integer'" class="input w-full" type="number" v-model.number="form[f]">
+          <input v-else-if="schema.fields[f].type === 'date'" class="input w-full" placeholder="YYYY-MM-DD"
+                 pattern="-?\\d{4}(-\\d{2}(-\\d{2})?)?(/(-?\\d{4}(-\\d{2}(-\\d{2})?)?)?)?" v-model="form[f]">
+          <input v-else class="input w-full" :type="inputType(f)" v-model="form[f]">
+        </fieldset>
+
+        <fieldset v-for="(v, k) in form.extra" :key="'x' + k" class="fieldset">
+          <legend class="fieldset-legend">{{ k }}</legend>
+          <input class="input w-full" v-model="form.extra[k]">
+        </fieldset>
+      </div>
+      <select class="select select-sm mt-4" @change="addField($event.target.value); $event.target.value = ''">
+        <option value="">+ field</option>
+        <option v-for="f in hidden" :key="f">{{ f }}</option>
+      </select>
+    </div>`,
+};
+
+/** @param {Source} s */
+const authors = (s) => {
+  const names = /** @type {Name[]} */ (s.author || s.editor || []);
+  if (!names.length) return '';
+  return names[0].family + (names.length > 1 ? ' et al.' : '');
+};
+
+const SourceList = {
+  components: { Icon },
+  props: { sources: { type: Array, required: true } },
+  emits: ['error', 'imported'],
+  setup(/** @type {any} */ props, /** @type {any} */ { emit }) {
+    const query = ref('');
+    const rows = computed(() => {
+      const q = query.value.trim().toLowerCase();
+      return props.sources.filter((/** @type {Source} */ s) => {
+        if (!q) return true;
+        const hay = [s.key, s.title, ...(s.aliases || []), ...[...(s.author || []), ...(s.editor || [])].map((/** @type {Name} */ n) => `${n.given || ''} ${n.family || ''}`), s.date];
+        return hay.some((x) => x && String(x).toLowerCase().includes(q));
+      });
+    });
+
+    async function fromClipboard() {
+      try {
+        const text = await navigator.clipboard.readText();
+        const created = await api('POST', '/api/import-bibtex', { text });
+        emit('imported', created.map((/** @type {Source} */ s) => s.key));
+      } catch (e) { emit('error', e); }
+    }
+
+    return { query, rows, fromClipboard, authors, open: (/** @type {string} */ key) => go('#/edit/' + encodeURIComponent(key)), year: (/** @type {Source} */ s) => (s.date || '').slice(0, 4) };
+  },
+  template: `
+    <div>
+      <div class="flex gap-1 mb-4">
+        <a href="#/new" class="btn btn-square" title="new source"><icon name="plus"></icon></a>
+        <button class="btn btn-square" title="add from bibtex (clipboard)" @click="fromClipboard"><icon name="clipboard-paste"></icon></button>
+        <a href="#/settings" class="btn btn-square" title="settings"><icon name="settings"></icon></a>
+        <input class="input ml-auto" type="search" v-model="query" autofocus>
+      </div>
+      <table class="table table-xs table-zebra">
+        <thead><tr><th>key</th><th>title</th><th>author</th><th>year</th><th>type</th></tr></thead>
+        <tbody>
+          <tr v-for="s in rows" :key="s.key" class="hover:bg-base-200 cursor-pointer" @click="open(s.key)">
+            <td class="font-mono">{{ s.key }}</td><td>{{ s.title }}</td><td>{{ authors(s) }}</td>
+            <td>{{ year(s) }}</td><td>{{ s.entrytype }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`,
+};
+
+const Settings = {
+  components: { Icon },
+  props: { path: { type: String, default: '' } },
+  emits: ['error', 'saved'],
+  setup(/** @type {any} */ props, /** @type {any} */ { emit }) {
+    const value = ref(props.path || '');
+    async function save() {
+      try {
+        await api('PUT', '/api/settings', { path: value.value });
+        emit('saved');
+      } catch (e) { emit('error', e); }
+    }
+    return { value, save };
+  },
+  template: `
+    <div class="flex gap-1">
+      <a v-if="path" href="#/" class="btn btn-square" title="back"><icon name="arrow-left"></icon></a>
+      <input class="input flex-1" v-model="value" @keyup.enter="save" autofocus>
+      <button class="btn btn-square btn-primary" title="save" @click="save"><icon name="save"></icon></button>
+    </div>`,
+};
+
+createApp({
+  components: { SourceForm, SourceList, Settings },
+  setup() {
+    const route = ref(location.hash || '#/');
+    const error = ref('');
+    const path = ref(/** @type {string | null} */ (null));
+    const schema = ref(/** @type {Schema | null} */ (null));
+    const sources = ref(/** @type {Source[]} */ ([]));
+    const ready = ref(false);
+
+    /** @param {any} e */
+    const fail = (e) => { error.value = e.message || String(e); };
+
+    async function loadSources() {
+      try { sources.value = await api('GET', '/api/sources'); } catch (e) { fail(e); }
+    }
+
+    async function init() {
+      schema.value = await api('GET', '/api/schema');
+      path.value = (await api('GET', '/api/settings')).path;
+      if (!path.value) go('#/settings'); else await loadSources();
+      ready.value = true;
+    }
+
+    addEventListener('hashchange', () => {
+      route.value = location.hash || '#/';
+      error.value = '';
+      if (route.value === '#/' && path.value) loadSources();
+    });
+
+    const page = computed(() => {
+      const r = route.value;
+      if (r.startsWith('#/settings')) return 'settings';
+      if (r === '#/new') return 'new';
+      if (r.startsWith('#/edit/')) return 'edit';
+      return 'list';
+    });
+    const editKey = computed(() => decodeURIComponent(route.value.slice('#/edit/'.length)));
+
+    async function settingsSaved() {
+      path.value = (await api('GET', '/api/settings')).path;
+      await loadSources();
+      go('#/');
+    }
+
+    /** @param {string | null} key */
+    async function formSaved(key) {
+      await loadSources();
+      go(key ? `#/edit/${encodeURIComponent(key)}` : '#/');
+    }
+
+    /** @param {string[]} keys */
+    async function imported(keys) {
+      await loadSources();
+      go(keys.length === 1 ? `#/edit/${encodeURIComponent(keys[0])}` : '#/');
+    }
+
+    onMounted(() => init().catch(fail));
+
+    return { ready, error, path, schema, sources, page, editKey, fail, settingsSaved, formSaved, imported };
+  },
+  template: `
+    <div v-if="error" role="alert" class="alert alert-error mb-4"><span>{{ error }}</span></div>
+    <template v-if="ready">
+      <settings v-if="page === 'settings'" :path="path || ''" @saved="settingsSaved" @error="fail"></settings>
+      <source-form v-else-if="page === 'new' || page === 'edit'" :key="page + editKey" :schema="schema"
+                   :sources="sources" :edit-key="page === 'edit' ? editKey : null" @saved="formSaved" @error="fail"></source-form>
+      <source-list v-else :sources="sources" @imported="imported" @error="fail"></source-list>
+    </template>`,
+}).mount('#app');
