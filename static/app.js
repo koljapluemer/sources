@@ -105,7 +105,7 @@ function blankValue(def, parts) {
  * @returns {Source}
  */
 function toForm(source, schema) {
-  const form = structuredClone(source);
+  const form = JSON.parse(JSON.stringify(source));
   form.aliases = [...(form.aliases || []), ''];
   form.extra = form.extra || {};
   for (const [name, def] of Object.entries(schema.fields)) {
