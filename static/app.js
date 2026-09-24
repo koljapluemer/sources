@@ -169,7 +169,14 @@ const SourceForm = {
       return t === 'integer' ? 'number' : t === 'uri' ? 'url' : 'text';
     }
 
+    /** @param {string} s */
+    const slugify = (s) => s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
     async function save() {
+      if (!currentKey && !form.value.key.trim() && form.value.title?.trim()) {
+        form.value.key = slugify(form.value.title);
+      }
       if (!form.value.key.trim()) return;
       try {
         const saved = currentKey
@@ -248,7 +255,7 @@ const authors = (s) => {
 
 const SourceList = {
   components: { Icon },
-  props: { sources: { type: Array, required: true } },
+  props: { sources: { type: Array, required: true }, recent: { type: Array, required: true } },
   emits: ['error', 'imported', 'deleted', 'warn'],
   setup(/** @type {any} */ props, /** @type {any} */ { emit }) {
     const query = ref('');
@@ -289,7 +296,11 @@ const SourceList = {
       } catch (e) { emit('error', e); }
     }
 
-    return { query, rows, fromClipboard, authors, copy, copyMarkdown, copyHtml, remove, edit: (/** @type {string} */ key) => go('#/edit/' + encodeURIComponent(key)), year: (/** @type {Source} */ s) => (s.date || '').slice(0, 4) };
+    const recentBg = ['bg-yellow-400/50!', 'bg-yellow-400/30!', 'bg-yellow-400/15!'];
+    /** @param {Source} s */
+    const rowClass = (s) => recentBg[props.recent.indexOf(s.key)] || 'hover:bg-base-200';
+
+    return { query, rows, rowClass, fromClipboard, authors, copy, copyMarkdown, copyHtml, remove, edit: (/** @type {string} */ key) => go('#/edit/' + encodeURIComponent(key)), year: (/** @type {Source} */ s) => (s.date || '').slice(0, 4) };
   },
   template: `
     <div>
@@ -304,7 +315,7 @@ const SourceList = {
       <table class="table table-xs table-zebra">
         <thead><tr><th></th><th>key</th><th>title</th><th>author</th><th>year</th><th>type</th><th></th></tr></thead>
         <tbody>
-          <tr v-for="s in rows" :key="s.key" class="hover:bg-base-200">
+          <tr v-for="s in rows" :key="s.key" :class="rowClass(s)">
             <td><button class="btn btn-ghost btn-xs btn-square" title="copy key" @click="copy(s.key)"><icon name="copy" :size="14"></icon></button></td>
             <td class="font-mono">{{ s.key }}</td>
             <td>
@@ -356,6 +367,7 @@ createApp({
     const path = ref(/** @type {string | null} */ (null));
     const schema = ref(/** @type {Schema | null} */ (null));
     const sources = ref(/** @type {Source[]} */ ([]));
+    const recent = ref(/** @type {string[]} */ ([]));
     const ready = ref(false);
     const deleted = ref(/** @type {Source | null} */ (null));
     const warning = ref('');
@@ -373,7 +385,9 @@ createApp({
     const fail = (e) => { error.value = e.message || String(e); };
 
     async function loadSources() {
-      try { sources.value = await api('GET', '/api/sources'); } catch (e) { fail(e); }
+      try {
+        [sources.value, recent.value] = await Promise.all([api('GET', '/api/sources'), api('GET', '/api/recent')]);
+      } catch (e) { fail(e); }
     }
 
     async function init() {
@@ -440,7 +454,7 @@ createApp({
 
     onMounted(() => init().catch(fail));
 
-    return { ready, error, path, schema, sources, page, editKey, deleted, warning, warn, fail, settingsSaved, formSaved, formDeleted, undoDelete, imported };
+    return { ready, error, path, schema, sources, recent, page, editKey, deleted, warning, warn, fail, settingsSaved, formSaved, formDeleted, undoDelete, imported };
   },
   template: `
     <div v-if="deleted || warning" class="toast toast-top toast-end z-50">
@@ -455,6 +469,6 @@ createApp({
       <settings v-if="page === 'settings'" :path="path || ''" @saved="settingsSaved" @error="fail"></settings>
       <source-form v-else-if="page === 'new' || page === 'edit'" :key="page + editKey" :schema="schema"
                    :sources="sources" :edit-key="page === 'edit' ? editKey : null" @saved="formSaved" @deleted="formDeleted" @error="fail"></source-form>
-      <source-list v-else :sources="sources" @imported="imported" @deleted="formDeleted" @warn="warn" @error="fail"></source-list>
+      <source-list v-else :sources="sources" :recent="recent" @imported="imported" @deleted="formDeleted" @warn="warn" @error="fail"></source-list>
     </template>`,
 }).mount('#app');

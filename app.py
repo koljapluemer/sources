@@ -57,6 +57,11 @@ def list_sources():
     return jsonify(store.list_sources())
 
 
+@app.get("/api/recent")
+def recent_sources():
+    return jsonify(store.recent())
+
+
 @app.post("/api/sources")
 def create_source():
     return jsonify(store.create(request.get_json())), 201

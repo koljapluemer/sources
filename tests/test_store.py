@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 
@@ -36,6 +37,17 @@ def test_rename_and_conflict(data_dir):
     store.delete("c")
     with pytest.raises(store.NotFound):
         store.delete("c")
+
+
+def test_recent(data_dir):
+    for i, k in enumerate("abcd"):
+        store.create({"key": k})
+        os.utime(data_dir / f"{k}.json", ns=(i * 10**9, i * 10**9))
+    assert store.recent() == ["d", "c", "b"]
+    store.update("a", {"key": "a"})  # unchanged content: no rewrite
+    assert store.recent() == ["d", "c", "b"]
+    store.update("a", {"key": "a", "title": "T"})
+    assert store.recent() == ["a", "d", "c"]
 
 
 @pytest.mark.parametrize("bad", [

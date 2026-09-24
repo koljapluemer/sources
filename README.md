@@ -26,6 +26,8 @@ update-desktop-database ~/.local/share/applications
 
 "Sources" then shows up in application search and can be pinned to the dock. `uv` must be on the desktop session's `PATH` (`~/.local/bin`); otherwise put its absolute path in `Exec`.
 
+The server keeps running in the background; relaunching only reopens the browser. After code changes: `pkill -f sources/app.py`, then relaunch.
+
 ## Test
 
 ```

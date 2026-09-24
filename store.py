@@ -51,8 +51,14 @@ def _file(key: str) -> Path:
 def _write(path: Path, source: dict) -> None:
     ordered = {k: source[k] for k in _FIRST if k in source}
     ordered.update({k: v for k, v in source.items() if k not in ordered})
+    text = json.dumps(ordered, indent=2, ensure_ascii=False) + "\n"
+    try:
+        if path.read_text(encoding="utf-8") == text:
+            return  # unchanged: keep mtime so "recently edited" stays meaningful
+    except OSError:
+        pass
     tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(ordered, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.write_text(text, encoding="utf-8")
     tmp.replace(path)
 
 
@@ -64,6 +70,12 @@ def list_sources() -> list[dict]:
         except ValueError:
             continue
     return out
+
+
+def recent(n: int = 3) -> list[str]:
+    """Keys of the n most recently modified sources, newest first."""
+    files = sorted(_dir().glob("*.json"), key=lambda f: f.stat().st_mtime_ns, reverse=True)
+    return [f.stem for f in files[:n]]
 
 
 def create(source: dict) -> dict:
