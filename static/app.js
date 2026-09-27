@@ -344,18 +344,62 @@ const Settings = {
   emits: ['error', 'saved'],
   setup(/** @type {any} */ props, /** @type {any} */ { emit }) {
     const value = ref(props.path || '');
+    /** @typedef {{path: string, error: string | null, synced?: boolean}} BibRow */
+    const bib = ref(/** @type {BibRow[]} */ ([{ path: '', error: null }]));
+    let saved = '[]';
+
+    /** @param {{bibtex: BibRow[]}} s */
+    function setBib(s) {
+      saved = JSON.stringify(s.bibtex.map((b) => b.path));
+      bib.value = [...s.bibtex.map((b) => ({ ...b, synced: true })), { path: '', error: null }];
+    }
+    onMounted(async () => {
+      try { setBib(await api('GET', '/api/settings')); } catch (e) { emit('error', e); }
+    });
+
     async function save() {
+      if (value.value === props.path) return;
       try {
         await api('PUT', '/api/settings', { path: value.value });
         emit('saved');
       } catch (e) { emit('error', e); }
     }
-    return { value, save };
+
+    /** @param {number} i @param {string} v */
+    function setBibPath(i, v) {
+      bib.value[i] = { path: v, error: null };
+      if (bib.value[bib.value.length - 1].path !== '') bib.value.push({ path: '', error: null });
+    }
+
+    async function saveBib() {
+      const paths = bib.value.map((b) => b.path.trim()).filter(Boolean);
+      if (JSON.stringify(paths) === saved) return;
+      try {
+        setBib(await api('PUT', '/api/settings', { bibtex: paths }));
+      } catch (e) { emit('error', e); }
+    }
+
+    return { value, save, bib, setBibPath, saveBib };
   },
   template: `
-    <div class="flex gap-1">
-      <a v-if="path" href="#/" class="btn btn-square" title="back"><icon name="arrow-left"></icon></a>
-      <input class="input flex-1" v-model="value" @blur="save" autofocus>
+    <div>
+      <div class="flex gap-1 mb-4">
+        <a v-if="path" href="#/" class="btn btn-square" title="back"><icon name="arrow-left"></icon></a>
+      </div>
+      <fieldset class="fieldset"><legend class="fieldset-legend">data directory</legend>
+        <input class="input w-full" v-model="value" @blur="save" autofocus></fieldset>
+      <fieldset v-if="path" class="fieldset"><legend class="fieldset-legend">bibtex export</legend>
+        <div class="flex flex-col gap-1" @focusout="saveBib">
+          <div v-for="(b, i) in bib" :key="i">
+            <label class="input input-sm w-full" :class="{'input-error': b.error}">
+              <input class="grow font-mono" :value="b.path" placeholder="~/path/to/sources.bib"
+                     @input="setBibPath(i, $event.target.value)" @keydown.enter="saveBib">
+              <icon v-if="b.synced && !b.error" name="check" :size="14" class="text-success"></icon>
+            </label>
+            <div v-if="b.error" class="text-error text-xs mt-0.5">{{ b.error }}</div>
+          </div>
+        </div>
+      </fieldset>
     </div>`,
 };
 
@@ -413,9 +457,10 @@ createApp({
     const editKey = computed(() => decodeURIComponent(route.value.slice('#/edit/'.length)));
 
     async function settingsSaved() {
+      const first = !path.value;
       path.value = (await api('GET', '/api/settings')).path;
       await loadSources();
-      go('#/');
+      if (first) go('#/');
     }
 
     /** @param {string | null} key */

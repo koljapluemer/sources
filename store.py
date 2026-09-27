@@ -19,20 +19,53 @@ class NotFound(Exception):
     pass
 
 
-def get_path() -> Path | None:
+def _config() -> dict:
     try:
-        p = json.loads(CONFIG_PATH.read_text()).get("path")
+        cfg = json.loads(CONFIG_PATH.read_text())
     except (OSError, ValueError):
-        return None
+        return {}
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def _save_config(**changes) -> None:
+    cfg = _config() | changes
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n")
+
+
+def get_path() -> Path | None:
+    p = _config().get("path")
     return Path(p) if p else None
 
 
 def set_path(path: str) -> Path:
     p = Path(path).expanduser().resolve()
     p.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps({"path": str(p)}, indent=2) + "\n")
+    _save_config(path=str(p))
     return p
+
+
+def get_bib_paths() -> list[str]:
+    return list(_config().get("bibtex") or [])
+
+
+def set_bib_paths(paths: list[str]) -> list[str]:
+    """Store .bib export targets. `~` is expanded, a directory gets `sources.bib` appended."""
+    if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+        raise ValidationError("bibtex: expected list of paths")
+    out: list[str] = []
+    for raw in paths:
+        if not raw.strip():
+            continue
+        p = Path(raw.strip()).expanduser()
+        if p.is_absolute():
+            p = p.resolve()
+            if p.is_dir():
+                p = p / "sources.bib"
+        if str(p) not in out:
+            out.append(str(p))
+    _save_config(bibtex=out)
+    return out
 
 
 def _dir() -> Path:

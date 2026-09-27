@@ -4,6 +4,7 @@ import webbrowser
 
 from flask import Flask, jsonify, render_template, request
 
+import bibtex_export
 import bibtex_import
 import store
 from fields import ValidationError, schema
@@ -38,18 +39,36 @@ def get_schema():
     return jsonify(schema())
 
 
+def _settings():
+    p = store.get_path()
+    bib = [{"path": b, "error": bibtex_export.status.get(b)} for b in store.get_bib_paths()]
+    return jsonify(path=str(p) if p else None, bibtex=bib)
+
+
 @app.get("/api/settings")
 def get_settings():
-    p = store.get_path()
-    return jsonify(path=str(p) if p else None)
+    return _settings()
 
 
 @app.put("/api/settings")
 def put_settings():
-    path = (request.get_json().get("path") or "").strip()
-    if not path:
-        raise ValidationError("path required")
-    return jsonify(path=str(store.set_path(path)))
+    body = request.get_json()
+    if "path" in body:
+        path = (body.get("path") or "").strip()
+        if not path:
+            raise ValidationError("path required")
+        store.set_path(path)
+    if "bibtex" in body:
+        store.set_bib_paths(body["bibtex"])
+    bibtex_export.sync()
+    return _settings()
+
+
+@app.after_request
+def _sync_after_change(response):
+    if request.method in ("POST", "PUT", "DELETE") and response.status_code < 400:
+        bibtex_export.schedule()
+    return response
 
 
 @app.get("/api/sources")
@@ -107,4 +126,5 @@ if __name__ == "__main__":
         webbrowser.open(url)
     else:
         threading.Timer(0.8, webbrowser.open, args=(url,)).start()
+        bibtex_export.start()
         app.run(port=PORT)
