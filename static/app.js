@@ -320,7 +320,12 @@ const SourceList = {
             <td class="font-mono">{{ s.key }}</td>
             <td>
               <div class="flex items-center justify-between gap-2">
-                <span>{{ s.title }}</span>
+                <span class="flex flex-col gap-0.5 min-w-0">
+                  <span>{{ s.title }}</span>
+                  <span v-if="s.aliases?.length" class="flex gap-1 min-w-0 overflow-hidden">
+                    <span v-for="a in s.aliases" :key="a" class="badge badge-outline badge-xs text-[10px] min-w-0 max-w-40" :title="a"><span class="truncate">{{ a }}</span></span>
+                  </span>
+                </span>
                 <span class="flex shrink-0">
                   <button class="btn btn-ghost btn-xs btn-square" title="copy as markdown link" @click="copyMarkdown(s)"><icon name="link" :size="14"></icon></button>
                   <button class="btn btn-ghost btn-xs btn-square" title="copy as html link" @click="copyHtml(s)"><icon name="code-xml" :size="14"></icon></button>
