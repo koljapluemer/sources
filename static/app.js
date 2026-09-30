@@ -30,6 +30,10 @@ async function api(method, url, body) {
 
 const go = (/** @type {string} */ hash) => { location.hash = hash; };
 
+/** list route including the current filter, e.g. '#/?q=foo' */
+const listHash = ref('#/');
+const hashQuery = () => (location.hash.startsWith('#/?') ? new URLSearchParams(location.hash.slice(3)).get('q') || '' : '');
+
 const Icon = {
   props: { name: { type: String, required: true }, size: { type: Number, default: 20 } },
   setup(/** @type {{name: string, size: number}} */ props) {
@@ -201,12 +205,12 @@ const SourceForm = {
       } catch (e) { emit('error', e); }
     }
 
-    return { form, visible, hidden, addField, inputType, autosave, remove, types: Object.keys(schema.entryTypes) };
+    return { form, visible, hidden, addField, inputType, autosave, remove, listHash, types: Object.keys(schema.entryTypes) };
   },
   template: `
     <div @focusout="autosave">
       <div class="flex gap-1 mb-4">
-        <a href="#/" class="btn btn-square" title="back"><icon name="arrow-left"></icon></a>
+        <a :href="listHash" class="btn btn-square" title="back"><icon name="arrow-left"></icon></a>
         <button v-if="editKey" class="btn btn-square btn-error btn-outline" title="delete" @click="remove"><icon name="trash-2"></icon></button>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
@@ -258,7 +262,11 @@ const SourceList = {
   props: { sources: { type: Array, required: true }, recent: { type: Array, required: true } },
   emits: ['error', 'imported', 'deleted', 'warn'],
   setup(/** @type {any} */ props, /** @type {any} */ { emit }) {
-    const query = ref('');
+    const query = ref(hashQuery());
+    watch(query, (q) => {
+      listHash.value = q ? '#/?' + new URLSearchParams({ q }) : '#/';
+      history.replaceState(null, '', listHash.value);
+    }, { immediate: true });
     const rows = computed(() => {
       const q = query.value.trim().toLowerCase();
       return props.sources.filter((/** @type {Source} */ s) => {
@@ -384,12 +392,12 @@ const Settings = {
       } catch (e) { emit('error', e); }
     }
 
-    return { value, save, bib, setBibPath, saveBib };
+    return { value, save, bib, setBibPath, saveBib, listHash };
   },
   template: `
     <div>
       <div class="flex gap-1 mb-4">
-        <a v-if="path" href="#/" class="btn btn-square" title="back"><icon name="arrow-left"></icon></a>
+        <a v-if="path" :href="listHash" class="btn btn-square" title="back"><icon name="arrow-left"></icon></a>
       </div>
       <fieldset class="fieldset"><legend class="fieldset-legend">data directory</legend>
         <input class="input w-full" v-model="value" @blur="save" autofocus></fieldset>
@@ -449,7 +457,7 @@ createApp({
     addEventListener('hashchange', () => {
       route.value = location.hash || '#/';
       error.value = '';
-      if (route.value === '#/' && path.value) loadSources();
+      if (page.value === 'list' && path.value) loadSources();
     });
 
     const page = computed(() => {
@@ -465,7 +473,7 @@ createApp({
       const first = !path.value;
       path.value = (await api('GET', '/api/settings')).path;
       await loadSources();
-      if (first) go('#/');
+      if (first) go(listHash.value);
     }
 
     /** @param {string | null} key */
@@ -479,7 +487,7 @@ createApp({
     /** @param {Source} source */
     async function formDeleted(source) {
       await loadSources();
-      go('#/');
+      go(listHash.value);
       deleted.value = source;
       clearTimeout(undoTimer);
       undoTimer = setTimeout(() => { deleted.value = null; }, 20000);
@@ -499,7 +507,7 @@ createApp({
     /** @param {string[]} keys */
     async function imported(keys) {
       await loadSources();
-      go(keys.length === 1 ? `#/edit/${encodeURIComponent(keys[0])}` : '#/');
+      go(keys.length === 1 ? `#/edit/${encodeURIComponent(keys[0])}` : listHash.value);
     }
 
     onMounted(() => init().catch(fail));
