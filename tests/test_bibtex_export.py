@@ -14,7 +14,6 @@ def data_dir(tmp_path, monkeypatch):
 
 SOURCE = {
     "key": "doe2020", "entrytype": "article", "title": "R&D at 50% — Müller",
-    "aliases": ["x"],
     "author": [
         {"family": "Doe", "given": "Jane", "suffix": "Jr."},
         {"family": "Beethoven", "given": "Ludwig", "prefix": "van"},
@@ -22,7 +21,7 @@ SOURCE = {
     ],
     "journaltitle": "Nature", "volume": 3, "date": "2020-05",
     "location": ["Berlin", "Rock and Roll"], "url": "https://x.org/a_b",
-    "extra": {"entrytype": "weird", "custom": "v", "bad key": "v"},
+    "extra": "entrytype: weird\ncustom: v",
 }
 
 
@@ -31,11 +30,11 @@ def test_render_roundtrip():
     assert text.startswith(bibtex_export.HEADER)
     assert "url = {https://x.org/a_b}" in text
     assert "location = {Berlin and {Rock and Roll}}" in text
-    assert "bad key" not in text and "weird" not in text
+    assert "custom" not in text and "weird" not in text
     [back] = bibtex_import.parse(text)
-    expected = {k: v for k, v in SOURCE.items() if k not in ("aliases", "extra", "location")}
+    expected = {k: v for k, v in SOURCE.items() if k not in ("extra", "location")}
     assert {k: v for k, v in back.items() if k not in ("extra", "location")} == expected
-    assert back["extra"] == {"custom": "v"}
+    assert "extra" not in back
 
 
 def test_sync(tmp_path):

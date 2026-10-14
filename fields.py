@@ -1,8 +1,7 @@
-"""biblatex data model: field types and per-entry-type default fields.
+"""Source data model: the biblatex subset needed to cite in ACM/IEEE/APA, plus a canonical url.
 
 Field types:
   literal   str
-  text      str (multi-line)
   integer   int
   range     str, e.g. "12--34"
   name      list of {family, given, prefix, suffix}
@@ -10,173 +9,57 @@ Field types:
   date      str, ISO 8601 / EDTF-ish ("2020", "2020-05", "2020-05-17", "2020/2021")
   uri       str
   verbatim  str
-  key       str, one of `choices` if given
+
+`extra` is free text, kept next to the fields but not part of them.
 """
 
 import re
 
 NAME_PARTS = ("family", "given", "prefix", "suffix")
 
-# Core fields every source has, stored at top level alongside biblatex fields.
-CORE = {"key", "entrytype", "title", "aliases"}
+# Core fields every source has: the key is the file name, the title the first line.
+CORE = {"key", "entrytype", "title"}
 
-# Ordered: this is the display order in the form.
+# Ordered: this is the display order in the form and in the file.
 FIELDS: dict[str, dict] = {
-    # people
     "author": {"type": "name"},
     "editor": {"type": "name"},
-    "editora": {"type": "name"},
-    "editorb": {"type": "name"},
-    "editorc": {"type": "name"},
-    "translator": {"type": "name"},
-    "commentator": {"type": "name"},
-    "annotator": {"type": "name"},
-    "introduction": {"type": "name"},
-    "foreword": {"type": "name"},
-    "afterword": {"type": "name"},
-    "bookauthor": {"type": "name"},
-    "holder": {"type": "name"},
-    "namea": {"type": "name"},
-    "nameb": {"type": "name"},
-    "namec": {"type": "name"},
-    # titles
-    "subtitle": {"type": "literal"},
-    "titleaddon": {"type": "literal"},
-    "shorttitle": {"type": "literal"},
-    "maintitle": {"type": "literal"},
-    "mainsubtitle": {"type": "literal"},
-    "maintitleaddon": {"type": "literal"},
-    "booktitle": {"type": "literal"},
-    "booksubtitle": {"type": "literal"},
-    "booktitleaddon": {"type": "literal"},
-    "journaltitle": {"type": "literal"},
-    "journalsubtitle": {"type": "literal"},
-    "issuetitle": {"type": "literal"},
-    "issuesubtitle": {"type": "literal"},
-    "origtitle": {"type": "literal"},
-    "eventtitle": {"type": "literal"},
-    "eventtitleaddon": {"type": "literal"},
-    "reprinttitle": {"type": "literal"},
-    "series": {"type": "literal"},
-    # dates
     "date": {"type": "date"},
-    "origdate": {"type": "date"},
-    "eventdate": {"type": "date"},
     "urldate": {"type": "date"},
-    # publication
+    "journaltitle": {"type": "literal"},
+    "booktitle": {"type": "literal"},
+    "series": {"type": "literal"},
     "type": {"type": "literal"},
-    "entrysubtype": {"type": "literal"},
-    "edition": {"type": "literal"},
-    "volume": {"type": "integer"},
-    "volumes": {"type": "integer"},
     "number": {"type": "literal"},
-    "issue": {"type": "literal"},
-    "part": {"type": "literal"},
-    "chapter": {"type": "literal"},
-    "pages": {"type": "range"},
-    "pagetotal": {"type": "literal"},
+    "volume": {"type": "integer"},
+    "edition": {"type": "literal"},
     "version": {"type": "literal"},
-    "howpublished": {"type": "literal"},
-    "pubstate": {
-        "type": "key",
-        "choices": ["inpreparation", "submitted", "forthcoming", "inpress", "prepublished"],
-    },
+    "pages": {"type": "range"},
     "publisher": {"type": "list"},
-    "organization": {"type": "list"},
     "institution": {"type": "list"},
+    "organization": {"type": "list"},
     "location": {"type": "list"},
-    "venue": {"type": "literal"},
-    "origlocation": {"type": "list"},
-    "origpublisher": {"type": "list"},
-    "language": {"type": "list"},
-    "origlanguage": {"type": "list"},
-    # identifiers
     "doi": {"type": "verbatim"},
     "isbn": {"type": "verbatim"},
-    "issn": {"type": "verbatim"},
-    "isrn": {"type": "verbatim"},
     "eprint": {"type": "verbatim"},
     "eprinttype": {"type": "literal"},
-    "eprintclass": {"type": "literal"},
     "url": {"type": "uri"},
-    "file": {"type": "verbatim"},
-    "library": {"type": "literal"},
-    # text
-    "abstract": {"type": "text"},
-    "annotation": {"type": "text"},
-    "note": {"type": "text"},
-    "addendum": {"type": "text"},
-    "keywords": {"type": "literal"},
-    # relations
-    "crossref": {"type": "literal"},
-    "xref": {"type": "literal"},
-    "related": {"type": "list"},
-    "relatedtype": {"type": "literal"},
-    "relatedstring": {"type": "literal"},
-    "entryset": {"type": "list"},
-    # sorting / labels
-    "shortauthor": {"type": "literal"},
-    "shorteditor": {"type": "literal"},
-    "shorthand": {"type": "literal"},
-    "shorthandintro": {"type": "literal"},
-    "label": {"type": "literal"},
-    "sortkey": {"type": "literal"},
-    "sorttitle": {"type": "literal"},
-    "sortyear": {"type": "integer"},
-    "sortname": {"type": "literal"},
-    "sortshorthand": {"type": "literal"},
-    "indextitle": {"type": "literal"},
-    "indexsorttitle": {"type": "literal"},
-    "langid": {"type": "literal"},
-    "langidopts": {"type": "literal"},
-    "options": {"type": "literal"},
-    "presort": {"type": "literal"},
-    "execute": {"type": "literal"},
-    "gender": {"type": "literal"},
-    "hyphenation": {"type": "literal"},
-    "pagination": {"type": "literal"},
-    "bookpagination": {"type": "literal"},
-    "ids": {"type": "list"},
-    # user-defined
-    **{f"user{c}": {"type": "literal"} for c in "abcdef"},
-    **{f"verb{c}": {"type": "verbatim"} for c in "abc"},
 }
 
 _ARTICLE = ["author", "journaltitle", "date", "volume", "number", "pages", "doi", "url", "urldate"]
 _BOOK = ["author", "date", "edition", "volume", "series", "publisher", "location", "isbn", "doi", "url"]
-_COLL = ["author", "booktitle", "editor", "date", "publisher", "location", "pages", "doi", "url"]
-_PROC = ["editor", "date", "eventtitle", "publisher", "location", "series", "volume", "isbn", "doi", "url"]
 
 # Fields shown by default per entry type; anything else is added on demand.
 ENTRY_TYPES: dict[str, list[str]] = {
     "article": _ARTICLE,
     "book": _BOOK,
-    "mvbook": ["author", "date", "volumes", "publisher", "location", "isbn", "url"],
-    "inbook": _COLL + ["bookauthor"],
-    "bookinbook": _COLL + ["bookauthor"],
-    "suppbook": _COLL + ["bookauthor"],
-    "booklet": ["author", "date", "howpublished", "location", "url"],
-    "collection": _BOOK[:1] + ["editor"] + _BOOK[1:],
-    "mvcollection": ["editor", "date", "volumes", "publisher", "location", "isbn", "url"],
-    "incollection": _COLL,
-    "suppcollection": _COLL,
-    "dataset": ["author", "date", "type", "version", "publisher", "location", "doi", "url", "urldate"],
-    "manual": ["author", "organization", "date", "edition", "type", "version", "location", "url"],
-    "misc": ["author", "date", "type", "howpublished", "url", "urldate"],
-    "online": ["author", "date", "organization", "url", "urldate"],
-    "patent": ["author", "holder", "number", "type", "date", "location", "url"],
-    "periodical": ["editor", "date", "volume", "issn", "url"],
-    "suppperiodical": _ARTICLE,
-    "proceedings": _PROC,
-    "mvproceedings": ["editor", "date", "eventtitle", "volumes", "publisher", "location", "isbn", "url"],
-    "inproceedings": _PROC + ["author", "booktitle", "pages"],
-    "reference": _BOOK[:1] + ["editor"] + _BOOK[1:],
-    "mvreference": ["editor", "date", "volumes", "publisher", "location", "isbn", "url"],
-    "inreference": _COLL,
-    "report": ["author", "type", "number", "institution", "date", "location", "url", "urldate"],
-    "software": ["author", "date", "version", "publisher", "location", "doi", "url", "urldate"],
+    "incollection": ["author", "booktitle", "editor", "date", "publisher", "location", "pages", "doi", "url"],
+    "inproceedings": ["author", "booktitle", "editor", "date", "publisher", "location", "pages", "doi", "url"],
     "thesis": ["author", "type", "institution", "date", "location", "doi", "url", "urldate"],
-    "unpublished": ["author", "date", "howpublished", "location", "url", "note"],
+    "report": ["author", "type", "number", "institution", "date", "location", "url", "urldate"],
+    "online": ["author", "date", "organization", "url", "urldate"],
+    "software": ["author", "date", "version", "publisher", "doi", "url", "urldate"],
+    "misc": ["author", "date", "type", "url", "urldate"],
 }
 
 DATE_RE = re.compile(
@@ -207,7 +90,7 @@ def normalise(source: dict) -> dict:
     """Validate a source against the schema, strip empties, order keys.
 
     Raises ValidationError. Unknown top-level fields are rejected; `extra`
-    (str->str) holds leftovers from imports.
+    is free text.
     """
     if not isinstance(source, dict):
         raise ValidationError("expected object")
@@ -222,23 +105,13 @@ def normalise(source: dict) -> dict:
     title = _clean_str(source.get("title", ""), "title")
     if title:
         out["title"] = title
-    aliases = source.get("aliases") or []
-    if not isinstance(aliases, list):
-        raise ValidationError("aliases: expected list")
-    aliases = [a for a in (_clean_str(a, "aliases") for a in aliases) if a]
-    if aliases:
-        out["aliases"] = aliases
+    extra = source.get("extra") or ""
+    if not isinstance(extra, str):
+        raise ValidationError("extra: expected text")
+    extra = extra.strip()
 
     for name, value in source.items():
-        if name in CORE:
-            continue
-        if name == "extra":
-            if not isinstance(value, dict) or not all(
-                isinstance(k, str) and isinstance(v, str) for k, v in value.items()
-            ):
-                raise ValidationError("extra: expected string map")
-            if value:
-                out["extra"] = value
+        if name in CORE or name == "extra":
             continue
         spec = FIELDS.get(name)
         if spec is None:
@@ -246,6 +119,8 @@ def normalise(source: dict) -> dict:
         cleaned = _clean_value(name, spec, value)
         if cleaned not in (None, "", []):
             out[name] = cleaned
+    if extra:
+        out["extra"] = extra
     return out
 
 
@@ -282,6 +157,4 @@ def _clean_value(name: str, spec: dict, value):
     s = _clean_str(value, name)
     if t == "date" and s and not DATE_RE.match(s):
         raise ValidationError(f"{name}: invalid date '{s}'")
-    if t == "key" and s and s not in spec.get("choices", [s]):
-        raise ValidationError(f"{name}: invalid value '{s}'")
     return s

@@ -25,3 +25,7 @@ reinstall:
         setsid -f uv run --project {{dir}} {{dir}}/app.py >/dev/null 2>&1
         echo "restarted"
     fi
+
+# copy the item language's keyword schema in from the sibling dsl repo
+sync-spec:
+    cp {{dir}}/../dsl/spec/keywords.yaml {{dir}}/spec/keywords.yaml

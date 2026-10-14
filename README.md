@@ -1,6 +1,6 @@
 # Sources
 
-Personal source tracker: one biblatex-style JSON file per source, edited through a small Flask + Vue app.
+Personal source tracker: one plain-text item per source, edited through a small Flask + Vue app.
 
 ## Run
 
@@ -12,7 +12,25 @@ Opens http://127.0.0.1:8765. On first start, set the directory holding the JSON 
 
 ## Data
 
-`<dir>/<key>.json`, with `key` (biblatex key), `entrytype`, `title`, `aliases`, and any biblatex field. Names are `[{family, given, prefix, suffix}]`, lists (publisher, location, …) are string arrays, dates are ISO (`2020-05-17`). BibTeX pasted via the clipboard button is converted to this model (`journal` → `journaltitle`, `year`+`month` → `date`, `phdthesis` → `thesis`, …); unmapped fields land in `extra`.
+One item per source: `<dir>/<key>.txt`, written in the item language of `../dsl` (keywords in `spec/keywords.yaml`, refresh with `just sync-spec`). Files without a `source` line are other notes and are ignored.
+
+```
+Attention Is All You Need
+source
+data
+entrytype: inproceedings
+author:
+- {family: Vaswani, given: Ashish}
+date: 2017-06-12
+booktitle: NeurIPS
+url: https://arxiv.org/abs/1706.03762
+extra
+free text, never parsed or exported
+```
+
+The first line is the title (the key if there is none), `data` is YAML with `entrytype` and the biblatex fields in `fields.py` (the subset needed for ACM/IEEE/APA plus `url`). Names are `{family, given, prefix, suffix}`, lists (publisher, location, …) are string lists, dates are ISO (`2020-05-17`). Lines the app doesn't own (relationships, other keywords, unknown `data` keys) are kept when a source is saved.
+
+BibTeX pasted via the clipboard button is converted to this model (`journal` → `journaltitle`, `year`+`month` → `date`, `phdthesis` → `thesis`, …); unmapped fields are dropped. `extra` is free text for your own notes and is never written automatically.
 
 ## BibTeX export
 

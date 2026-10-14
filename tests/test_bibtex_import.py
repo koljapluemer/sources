@@ -18,7 +18,7 @@ def test_article_legacy_fields():
         {"family": "Some Corp"},
         {"given": "Jan", "prefix": "van der", "family": "Berg"},
     ]
-    assert s["extra"] == {"weird": "x"}
+    assert "weird" not in s and "extra" not in s
     normalise(s)
 
 

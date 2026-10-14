@@ -18,7 +18,6 @@ DEBOUNCE = 5  # seconds after the last change
 INTERVAL = 15 * 60  # full resync, picks up edits made outside the app
 
 _RAW_TYPES = {"uri", "verbatim"}  # written as-is (urls, doi, file paths)
-_FIELD_NAME = re.compile(r"^[a-z][a-z0-9_\-:.]*$")
 
 _latex = UnicodeToLatexEncoder(
     unknown_char_policy="keep", replacement_latex_protection="braces-after-macro"
@@ -65,10 +64,6 @@ def _entry(s: dict) -> Entry:
     for name, value in s.items():
         if name in FIELDS:
             fields.append(Field(name, _value(name, value)))
-    for name, value in (s.get("extra") or {}).items():
-        name = name.lower()
-        if name != "entrytype" and name not in FIELDS and _FIELD_NAME.match(name):
-            fields.append(Field(name, _enc(value)))
     return Entry(s["entrytype"], s["key"], fields)
 
 

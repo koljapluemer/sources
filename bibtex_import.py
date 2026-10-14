@@ -16,7 +16,7 @@ from fields import DATE_RE, ENTRY_TYPES, FIELDS
 
 NAME_FIELDS = tuple(n for n, s in FIELDS.items() if s["type"] == "name")
 
-# legacy bibtex/biblatex type -> (biblatex type, extra fields)
+# legacy bibtex/biblatex type -> (biblatex type, fields to set)
 TYPE_ALIASES = {
     "conference": ("inproceedings", {}),
     "electronic": ("online", {}),
@@ -31,11 +31,7 @@ FIELD_ALIASES = {
     "journal": "journaltitle",
     "address": "location",
     "school": "institution",
-    "key": "sortkey",
-    "annote": "annotation",
     "archiveprefix": "eprinttype",
-    "primaryclass": "eprintclass",
-    "pdf": "file",
 }
 
 MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
@@ -67,13 +63,11 @@ def _month(value: str) -> int | None:
 def _convert(entry: Entry) -> dict:
     etype = entry.entry_type.lower()
     out: dict = {"key": re.sub(r"[^A-Za-z0-9_:.\-/+]", "_", entry.key) or "source"}
-    extra: dict[str, str] = {}
 
     fixed: dict = {}
     if etype in TYPE_ALIASES:
         etype, fixed = TYPE_ALIASES[etype]
     if etype not in ENTRY_TYPES:
-        extra["entrytype"] = entry.entry_type
         etype = "misc"
     out["entrytype"] = etype
 
@@ -91,8 +85,6 @@ def _convert(entry: Entry) -> dict:
         if m and re.fullmatch(r"\d{4}", date):
             date = f"{date}-{m:02d}"
         fields["date"] = date
-    elif month:
-        extra["month"] = str(month)
 
     # howpublished holding only a url is really the url
     hp = fields.get("howpublished")
@@ -108,35 +100,21 @@ def _convert(entry: Entry) -> dict:
             continue
         spec = FIELDS.get(name)
         if spec is None:
-            extra[name] = value if isinstance(value, str) else str(value)
-            continue
+            continue  # outside the model: dropped
         t = spec["type"]
         if t == "name":
             if isinstance(value, list):
                 out[name] = [_name(p) for p in value]
-            else:
-                extra[name] = str(value)
         elif t == "list":
             out[name] = [p.strip() for p in re.split(r"\s+and\s+", value) if p.strip()]
         elif t == "integer":
             if str(value).strip().isdigit():
                 out[name] = int(value)
-            else:
-                extra[name] = str(value)
         elif t == "date":
             if DATE_RE.match(str(value)):
                 out[name] = str(value)
-            else:
-                extra[name] = str(value)
-        elif t == "key":
-            if value in spec["choices"]:
-                out[name] = value
-            else:
-                extra[name] = str(value)
         else:
             out[name] = value
-    if extra:
-        out["extra"] = extra
     return out
 
 

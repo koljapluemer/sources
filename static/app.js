@@ -3,7 +3,7 @@
  * @typedef {{family?: string, given?: string, prefix?: string, suffix?: string}} Name
  * @typedef {{type: 'literal'|'text'|'integer'|'range'|'name'|'list'|'date'|'uri'|'verbatim'|'key', choices?: string[]}} FieldDef
  * @typedef {{fields: Record<string, FieldDef>, entryTypes: Record<string, string[]>, nameParts: string[]}} Schema
- * @typedef {{key: string, entrytype: string, title?: string, aliases?: string[], extra?: Record<string, string>, [field: string]: any}} Source
+ * @typedef {{key: string, entrytype: string, title?: string, extra?: string, [field: string]: any}} Source
  */
 
 // @ts-ignore globals from CDN
@@ -110,8 +110,7 @@ function blankValue(def, parts) {
  */
 function toForm(source, schema) {
   const form = JSON.parse(JSON.stringify(source));
-  form.aliases = [...(form.aliases || []), ''];
-  form.extra = form.extra || {};
+  form.extra = form.extra || '';
   for (const [name, def] of Object.entries(schema.fields)) {
     if (form[name] === undefined) continue;
     if (def.type === 'name') form[name] = [...form[name].map((/** @type {Name} */ n) => ({ ...blankName(schema.nameParts), ...n })), blankName(schema.nameParts)];
@@ -135,7 +134,7 @@ const SourceForm = {
   emits: ['error', 'saved', 'deleted'],
   setup(/** @type {any} */ props, /** @type {any} */ { emit }) {
     const /** @type {Schema} */ schema = props.schema;
-    const form = ref(/** @type {Source} */ ({ key: '', entrytype: 'misc', aliases: [''], extra: {} }));
+    const form = ref(/** @type {Source} */ ({ key: '', entrytype: 'misc', extra: '' }));
     const shown = ref(/** @type {string[]} */ ([]));
     let currentKey = props.editKey;
     let pendingSave = Promise.resolve();
@@ -144,7 +143,7 @@ const SourceForm = {
       const existing = props.editKey && props.sources.find((/** @type {Source} */ s) => s.key === props.editKey);
       form.value = existing
         ? toForm(existing, schema)
-        : { key: '', entrytype: 'misc', aliases: [''], extra: {} };
+        : { key: '', entrytype: 'misc', extra: '' };
       shown.value = Object.keys(schema.fields).filter((f) => hasValue(form.value[f]));
     }, { immediate: true });
 
@@ -220,8 +219,6 @@ const SourceForm = {
           <select class="select w-full" v-model="form.entrytype"><option v-for="t in types" :key="t">{{ t }}</option></select></fieldset>
         <fieldset class="fieldset md:col-span-2"><legend class="fieldset-legend">title</legend>
           <input class="input w-full" v-model="form.title"></fieldset>
-        <fieldset class="fieldset md:col-span-2"><legend class="fieldset-legend">aliases</legend>
-          <str-list v-model="form.aliases"></str-list></fieldset>
 
         <fieldset v-for="f in visible" :key="f" class="fieldset"
                   :class="{'md:col-span-2': ['name', 'list', 'text'].includes(schema.fields[f].type)}">
@@ -238,10 +235,8 @@ const SourceForm = {
           <input v-else class="input w-full" :type="inputType(f)" v-model="form[f]">
         </fieldset>
 
-        <fieldset v-for="(v, k) in form.extra" :key="'x' + k" class="fieldset">
-          <legend class="fieldset-legend">{{ k }}</legend>
-          <input class="input w-full" v-model="form.extra[k]">
-        </fieldset>
+        <fieldset class="fieldset md:col-span-2"><legend class="fieldset-legend">extra</legend>
+          <textarea class="textarea w-full" v-model="form.extra"></textarea></fieldset>
       </div>
       <select class="select select-sm mt-4" @change="addField($event.target.value); $event.target.value = ''">
         <option value="">+ field</option>
@@ -271,7 +266,7 @@ const SourceList = {
       const q = query.value.trim().toLowerCase();
       return props.sources.filter((/** @type {Source} */ s) => {
         if (!q) return true;
-        const hay = [s.key, s.title, ...(s.aliases || []), ...[...(s.author || []), ...(s.editor || [])].map((/** @type {Name} */ n) => `${n.given || ''} ${n.family || ''}`), s.date];
+        const hay = [s.key, s.title, ...[...(s.author || []), ...(s.editor || [])].map((/** @type {Name} */ n) => `${n.given || ''} ${n.family || ''}`), s.date];
         return hay.some((x) => x && String(x).toLowerCase().includes(q));
       });
     });
@@ -330,9 +325,6 @@ const SourceList = {
               <div class="flex items-center justify-between gap-2">
                 <span class="flex flex-col gap-0.5 min-w-0">
                   <span>{{ s.title }}</span>
-                  <span v-if="s.aliases?.length" class="flex gap-1 min-w-0 overflow-hidden">
-                    <span v-for="a in s.aliases" :key="a" class="badge badge-outline badge-xs text-[10px] min-w-0 max-w-40" :title="a"><span class="truncate">{{ a }}</span></span>
-                  </span>
                 </span>
                 <span class="flex shrink-0">
                   <button class="btn btn-ghost btn-xs btn-square" title="copy as markdown link" @click="copyMarkdown(s)"><icon name="link" :size="14"></icon></button>
