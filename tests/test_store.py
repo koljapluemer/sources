@@ -56,6 +56,13 @@ def test_rewrite_keeps_foreign_lines(data_dir):
     )
 
 
+def test_tags_line_after_data_survives_a_save(data_dir):
+    (data_dir / "a.txt").write_text("Old\nsource\ndata\nentrytype: book\ntags read-later 2026\n")
+    assert store.list_sources()[0]["entrytype"] == "book"
+    store.update("a", {"key": "a", "entrytype": "book", "title": "New"})
+    assert (data_dir / "a.txt").read_text() == "New\n\nsource\ndata\nentrytype: book\ntags read-later 2026\n"
+
+
 def test_notes_are_not_sources(data_dir):
     (data_dir / "n.txt").write_text("Just a note\nrecurring mo\n")
     store.create({"key": "a"})
